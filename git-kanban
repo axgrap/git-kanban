@@ -1,0 +1,508 @@
+#!/bin/bash
+# git-kanban: Minimal POSIX shell Kanban board manager for Markdown boards in README.md
+#
+# Usage: git kanban
+
+KANBAN_FILE="README.md"
+
+
+if [ ! -f "$KANBAN_FILE" ]; then
+  echo "Error: $KANBAN_FILE not found in current directory." >&2
+  exit 1
+fi
+
+# Find Kanban board section
+start_line=$(awk '/^---$/ {f=1} f && /^## .*Kanban/ {print NR; exit}' "$KANBAN_FILE")
+if [ -z "$start_line" ]; then
+  echo "Kanban board section not found." >&2
+  exit 1
+fi
+
+# Collect all bolded lane names under Kanban board
+lanes=()
+lane_lines=()
+while IFS=: read -r lnum lname; do
+  clean_lane=$(echo "$lname" | sed 's/^ *//;s/ *$//;s/^\*\*//;s/\*\*$//')
+  lanes+=("$clean_lane")
+  lane_lines+=("$lnum")
+done < <(awk -v s="$start_line" 'NR>=s {if ($0 ~ /^[[:space:]]*\*\*[^*]+\*\*[[:space:]]*$/) {print NR":"$0}}' "$KANBAN_FILE")
+if [ ${#lanes[@]} -eq 0 ]; then
+  echo "No lanes found in Kanban board." >&2
+  exit 1
+fi
+
+# Parse tickets from all lanes using robust awk extraction
+lane_tickets=()
+for idx in "${!lanes[@]}"; do
+  lnum="${lane_lines[$idx]}"
+  next_lnum="${lane_lines[$((idx+1))]:-99999}"
+  tickets=$(awk -v s="$((lnum+1))" -v e="$((next_lnum-1))" '
+    NR < s {next}
+    NR > e {exit}
+    /^- \[ \]/ {sub(/^- \[ \] /, ""); print NR":"$0}
+  ' "$KANBAN_FILE")
+  lane_tickets+=("$tickets")
+done
+
+# Color definitions
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+MAGENTA="\033[35m"
+CYAN="\033[36m"
+BOLD="\033[1m"
+RESET="\033[0m"
+HL="\033[7m"
+
+selected=0
+# Snazzy ANSI header
+while true; do
+  clear
+  echo -e "${CYAN}${BOLD}========================================${RESET}"
+  echo -e "${MAGENTA}${BOLD}        git-kanban: TUI Board           ${RESET}"
+  echo -e "${CYAN}${BOLD}========================================${RESET}"
+  echo -e "${YELLOW}Use ↑/↓ arrows to select lane. Press Enter to confirm.${RESET}"
+  echo ""
+  options=("${BOLD}${RED}← Back/Exit${RESET}" "${BOLD}${GREEN}＋ Create lane${RESET}")
+  for i in "${!lanes[@]}"; do
+    options+=("${lanes[$i]}")
+  done
+  non_lane_options=$(( ${#options[@]} - ${#lanes[@]} ))
+  for i in "${!options[@]}"; do
+    if [ $i -eq $selected ]; then
+      if [ $i -eq 0 ]; then
+        printf "%b\n" "${HL}   ${options[$i]} ${RESET}"
+      elif [ $i -eq 1 ]; then
+        printf "%b\n" "${HL}${GREEN}   ${options[$i]} ${RESET}"
+      else
+        printf "${HL}${BLUE} %-2d ${RESET}${HL}${BOLD}|${RESET}${HL}${GREEN} %-20s ${RESET}\n" $((i-1)) "${options[$i]}"
+      fi
+    else
+      if [ $i -eq 0 ]; then
+        printf "%b\n" "   ${options[$i]} "
+      elif [ $i -eq 1 ]; then
+        printf "%b\n" "${GREEN}   ${options[$i]} ${RESET}"
+      else
+        printf "${BLUE} %-2d ${RESET}${BOLD}|${RESET}${GREEN} %-20s ${RESET}\n" $((i-1)) "${options[$i]}"
+      fi
+    fi
+  done
+  IFS= read -rsn1 key
+  if [[ $key == $'\x1b' ]]; then
+    IFS= read -rsn1 k1
+    IFS= read -rsn1 k2
+    if [[ $k1 == "[" ]]; then
+      if [[ $k2 == "A" ]]; then
+        ((selected--))
+        [ $selected -lt 0 ] && selected=0
+      elif [[ $k2 == "B" ]]; then
+        ((selected++))
+        [ $selected -ge ${#options[@]} ] && selected=$((${#options[@]}-1))
+      fi
+    fi
+  elif [[ $key == "" ]]; then
+    if [ $selected -eq 0 ]; then
+      exit 0
+    elif [ $selected -eq 1 ]; then
+      # Create lane
+      read -p "Enter new lane name: " new_lane
+      if [ -n "$new_lane" ]; then
+        board_start=$(awk '/^---$/ {f=1} f && /^## .*Kanban/ {print NR; exit}' "$KANBAN_FILE")
+        board_end=$(awk -v s="$board_start" 'NR>=s && /^- \[ \]/ {last=NR} END {print last}' "$KANBAN_FILE")
+        if [ -z "$board_start" ] || [ -z "$board_end" ]; then
+          echo "Kanban board section not found for lane insertion." >&2
+          continue
+        fi
+        echo "Select position for new lane:"
+        for i in "${!lanes[@]}"; do
+          echo "  $((i+1)). ${lanes[$i]}"
+        done
+        read -p "Enter lane number to position relative to: " pos_num
+        if [[ "$pos_num" =~ ^[0-9]+$ ]] && [ "$pos_num" -ge 1 ] && [ "$pos_num" -le ${#lanes[@]} ]; then
+          read -p "Insert above or below lane $pos_num? (a/b): " ab
+          ab=${ab:-b}
+          lane_label="**${lanes[$((pos_num-1))]}**"
+          insert_line=$(awk -v label="$lane_label" -v s="$board_start" -v e="$board_end" 'NR>=s && NR<=e && index($0,label){print NR; exit}' "$KANBAN_FILE")
+          if [ -z "$insert_line" ]; then
+            echo "Lane label not found in board section. Lane will not be added."
+            continue
+          fi
+          if [ "$ab" = "a" ]; then
+            awk -v s="$board_start" -v e="$board_end" -v iline="$insert_line" -v lane="$new_lane" '{
+              if (NR < s || NR > e) {print $0; next}
+              if (NR == iline) {print "**" lane "**\n"; print $0; next}
+              print $0
+            }' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+          else
+            awk -v s="$board_start" -v e="$board_end" -v iline="$insert_line" -v lane="$new_lane" '{
+              if (NR < s || NR > e) {print $0; next}
+              print $0
+              if (NR == iline) {print "**" lane "**\n"}
+            }' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+          fi
+          # Recalculate lanes and lane_lines after insertion
+          lanes=()
+          lane_lines=()
+          while IFS=: read -r lnum lname; do
+            clean_lane=$(echo "$lname" | sed 's/^ *//;s/ *$//;s/^\*\*//;s/\*\*$//')
+            lanes+=("$clean_lane")
+            lane_lines+=("$lnum")
+          done < <(awk -v s="$board_start" 'NR>=s {if ($0 ~ /^[[:space:]]*\*\*[^*]+\*\*[[:space:]]*$/) {print NR":"$0}}' "$KANBAN_FILE")
+        else
+          echo "Invalid lane number. Lane will not be added."
+        fi
+      fi
+      continue
+    else
+      lane_num=$((selected-non_lane_options))
+      src_lane="${lanes[$lane_num]}"
+      break
+    fi
+  fi
+done
+
+# Find index of selected lane
+src_idx=$lane_num
+IFS=$'\n' read -rd '' -a ticket_lines <<< "${lane_tickets[$src_idx]}"
+
+# Utility: Add a ticket to a lane
+add_ticket() {
+  local lane="$1"
+  local ticket="$2"
+  awk -v lane="$lane" -v ticket="$ticket" '
+    BEGIN {added=0}
+    /^\*\*.*\*\*/ {
+      print $0
+      if ($0 ~ "\\*\\*" lane "\\*\\*") {
+        print ""
+        print "- [ ] " ticket
+        print ""
+        added=1
+      }
+      next
+    }
+    {print $0}
+    END {if (!added) print "**" lane "**\n\n- [ ] " ticket "\n"}
+  ' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+}
+
+# Utility: Remove a ticket from a lane
+remove_ticket() {
+  local lane="$1"
+  local ticket="$2"
+  awk -v lane="$lane" -v ticket="$ticket" '
+    in_lane=0
+    /^\*\*.*\*\*/ {
+      in_lane=($0 ~ "\\*\\*" lane "\\*\\*")
+      print $0
+      next
+    }
+    in_lane && /^- \[ \] / {
+      if ($0 ~ "^- \[ \] " ticket "$") next
+    }
+    {print $0}
+  ' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+}
+
+# Utility: Add a lane
+add_lane() {
+  local lane="$1"
+  echo -e "\n**$lane**\n" >> "$KANBAN_FILE"
+}
+
+# Utility: Remove a lane
+remove_lane() {
+  local lane="$1"
+  awk -v lane="$lane" '
+    skip=0
+    /^\*\*.*\*\*/ {
+      if ($0 ~ "\\*\\*" lane "\\*\\*") {skip=1; next}
+      skip=0
+    }
+    skip && /^- \[ \] / {next}
+    !skip {print $0}
+  ' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+}
+
+# Arrow-key TUI for ticket selection as a function
+select_ticket() {
+  selected=0
+  while true; do
+    clear
+    printf "%b" "${CYAN}${BOLD}========================================${RESET}\n"
+    printf "%b" "${MAGENTA}${BOLD}        git-kanban: TUI Board           ${RESET}\n"
+    printf "%b" "${CYAN}${BOLD}========================================${RESET}\n"
+    printf "%b" "${YELLOW}Tickets in $src_lane:${RESET}\n"
+    printf "%b" "${YELLOW}Use ↑/↓ arrows to select ticket. Press Enter to confirm.${RESET}\n"
+    printf "%b" "\n"
+    options=("← Back" "＋ Create ticket")
+    for i in "${!ticket_lines[@]}"; do
+      ticket_text=${ticket_lines[$i]#*:}
+      options+=("$ticket_text")
+    done
+    for i in "${!options[@]}"; do
+      if [ $i -eq $selected ]; then
+        if [ $i -eq 0 ]; then
+          printf "%b   %s %b\n" "$HL$BOLD$RED" "${options[$i]}" "$RESET"
+        elif [ $i -eq 1 ]; then
+          printf "%b   %s %b\n" "$HL$GREEN" "${options[$i]}" "$RESET"
+        else
+          printf "%b%2d%b|%b%-60s%b\n" "$HL$BLUE" $((i-1)) "$RESET$HL$BOLD" "$HL$GREEN" "${options[$i]}" "$RESET"
+        fi
+      else
+        if [ $i -eq 0 ]; then
+          printf "%b   %s %b\n" "$BOLD$RED" "${options[$i]}" "$RESET"
+        elif [ $i -eq 1 ]; then
+          printf "%b   %s %b\n" "$GREEN" "${options[$i]}" "$RESET"
+        else
+          printf "%b%2d%b|%b%-60s%b\n" "$BLUE" $((i-1)) "$RESET$BOLD" "$GREEN" "${options[$i]}" "$RESET"
+        fi
+      fi
+    done
+    IFS= read -rsn1 key
+    if [[ $key == $'\x1b' ]]; then
+      IFS= read -rsn1 k1
+      IFS= read -rsn1 k2
+      if [[ $k1 == "[" ]]; then
+        if [[ $k2 == "A" ]]; then
+          ((selected--))
+          [ $selected -lt 0 ] && selected=0
+        elif [[ $k2 == "B" ]]; then
+          ((selected++))
+          [ $selected -ge ${#options[@]} ] && selected=$((${#options[@]}-1))
+        fi
+      fi
+    elif [[ $key == "" ]]; then
+      if [ $selected -eq 0 ]; then
+        return 1  # Go back to lane selection
+      elif [ $selected -eq 1 ]; then
+        # Create ticket
+        read -p "Enter new ticket name: " new_ticket
+        if [ -n "$new_ticket" ]; then
+          add_ticket "$src_lane" "$new_ticket"
+          # Immediately clean up Kanban board formatting ONLY within the board section
+          board_start=$(awk '/^---$/ {f=1} f && /^## .*Kanban/ {print NR; exit}' "$KANBAN_FILE")
+          board_end=$(awk -v s="$board_start" 'NR>=s && /^- \[ \]/ {last=NR} END {print last}' "$KANBAN_FILE")
+          if [ -n "$board_start" ] && [ -n "$board_end" ]; then
+            awk -v s="$board_start" -v e="$board_end" '
+              NR < s {print $0; next}
+              NR > e {print $0; next}
+              /^\*\*.*\*\*/ {
+                if (in_list) {print ""; in_list=0}
+                print $0; print ""; next
+              }
+              /^- \[ \]/ {
+                if (!in_list) {in_list=1}
+                print $0
+                next
+              }
+              /^$/ {next}
+              {print $0}
+              ENDFILE {
+                if (in_list) {print ""; in_list=0}
+              }
+            ' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+          fi
+          # Check for merge conflicts before committing
+          if grep -qE '<<<<<<<|=======|>>>>>>>' "$KANBAN_FILE"; then
+            echo "Error: Merge conflict detected in $KANBAN_FILE. Please resolve conflicts before committing." >&2
+            return 1
+          fi
+          # Commit the change
+          git add "$KANBAN_FILE"
+          git commit -m "kanban: added ticket '$new_ticket' to $src_lane"
+          # Immediately refresh ticket_lines from README after adding
+          src_idx=$lane_num
+          lane_tickets=()
+          for idx in "${!lanes[@]}"; do
+            lnum="${lane_lines[$idx]}"
+            next_lnum="${lane_lines[$((idx+1))]:-99999}"
+            tickets=$(awk -v s="$((lnum+1))" -v e="$((next_lnum-1))" '
+              NR < s {next}
+              NR > e {exit}
+              /^- \[ \]/ {sub(/^- \[ \] /, ""); print NR":"$0}
+            ' "$KANBAN_FILE")
+            lane_tickets+=("$tickets")
+          done
+          IFS=$'\n' read -rd '' -a ticket_lines <<< "${lane_tickets[$src_idx]}"
+        fi
+        continue
+      else
+        ticket_line="${ticket_lines[$((selected-2))]}"
+        SEL=${ticket_line%%:*}
+        ticket=${ticket_line#*:}
+        return 0  # Ticket selected
+      fi
+    fi
+  done
+}
+
+
+# Track if a move is made
+move_made=0
+if select_ticket; then
+  move_made=1
+else
+  # Go back to lane selection: restart script
+  exec "$0"
+fi
+
+# Select destination lane
+
+
+
+
+# Arrow-key TUI for destination lane selection (excluding source lane)
+selected=0
+while true; do
+  clear
+  printf "%b" "${CYAN}${BOLD}========================================${RESET}\n"
+  printf "%b" "${MAGENTA}${BOLD}        git-kanban: TUI Board           ${RESET}\n"
+  printf "%b" "${CYAN}${BOLD}========================================${RESET}\n"
+  printf "%b" "${YELLOW}Select destination lane:${RESET}\n"
+  printf "%b" "${YELLOW}Use ↑/↓ arrows to select lane. Press Enter to confirm.${RESET}\n"
+  printf "%b" "\n"
+  options=("← Back")
+  idx=0
+  lane_map=()
+  for i in "${!lanes[@]}"; do
+    if [ $((i+1)) -eq $lane_num ]; then
+      continue  # skip source lane
+    fi
+    lane_map+=($i)
+    options+=("${lanes[$i]}")
+    ((idx++))
+  done
+  for i in "${!options[@]}"; do
+    if [ $i -eq $selected ]; then
+      if [ $i -eq 0 ]; then
+        printf "%b   %s %b\n" "$HL$BOLD$RED" "${options[$i]}" "$RESET"
+      else
+        printf "%b%2d%b|%b%-20s%b\n" "$HL$BLUE" $i "$RESET$HL$BOLD" "$HL$GREEN" "${options[$i]}" "$RESET"
+      fi
+    else
+      if [ $i -eq 0 ]; then
+        printf "%b   %s %b\n" "$BOLD$RED" "${options[$i]}" "$RESET"
+      else
+        printf "%b%2d%b|%b%-20s%b\n" "$BLUE" $i "$RESET$BOLD" "$GREEN" "${options[$i]}" "$RESET"
+      fi
+    fi
+  done
+  IFS= read -rsn1 key
+  if [[ $key == $'\x1b' ]]; then
+    IFS= read -rsn1 k1
+    IFS= read -rsn1 k2
+    if [[ $k1 == "[" ]]; then
+      if [[ $k2 == "A" ]]; then
+        ((selected--))
+        [ $selected -lt 0 ] && selected=0
+      elif [[ $k2 == "B" ]]; then
+        ((selected++))
+        [ $selected -ge ${#options[@]} ] && selected=$((${#options[@]}-1))
+      fi
+    fi
+  elif [[ $key == "" ]]; then
+    if [ $selected -eq 0 ]; then
+      # Go back to ticket selection
+      break 2
+    else
+      dest_idx=${lane_map[$((selected-1))]}
+      dest_lane="${lanes[$dest_idx]}"
+      break
+    fi
+  fi
+done
+
+
+
+
+
+
+
+
+
+# Only move and commit if a move was made
+if [ "$move_made" -eq 1 ] && [ "$src_lane" != "$dest_lane" ] && [ -n "$dest_lane" ]; then
+  # Move the ticket (robust line-based logic, no extra linebreaks)
+  tmpfile="${KANBAN_FILE}.tmp"
+  lane_idx=0
+  in_lane=0
+  while IFS= read -r l; do
+    if [ $lane_idx -lt ${#lanes[@]} ] && echo "$l" | grep -q "^\*\*${lanes[$lane_idx]}\*\*"; then
+      in_lane=1
+      echo "$l" >> "$tmpfile"
+      lane_idx=$((lane_idx+1))
+      continue
+    fi
+    if [ $in_lane -eq 1 ] && echo "$l" | grep -q '^\*\*'; then
+      in_lane=0
+    fi
+    if [ $in_lane -eq 1 ] && echo "$l" | grep -q '^- \[ \]'; then
+      if [ "${l#- \[ \] }" = "$ticket" ] && [ "$src_lane" = "${lanes[$((lane_idx-1))]}" ]; then
+        continue  # skip moved ticket
+      fi
+      echo "$l" >> "$tmpfile"
+      continue
+    fi
+    echo "$l" >> "$tmpfile"
+  done < "$KANBAN_FILE"
+  mv "$tmpfile" "$KANBAN_FILE"
+
+  # Add to destination lane (no extra linebreaks, check off if Done)
+  tmpfile="${KANBAN_FILE}.tmp"
+  added=0
+  ticket_box="- [ ] $ticket"
+  if [[ "$dest_lane" =~ ^[Dd]one$ ]]; then
+    ticket_box="- [x] $ticket"
+  fi
+  while IFS= read -r l; do
+    echo "$l" >> "$tmpfile"
+    if [ $added -eq 0 ] && echo "$l" | grep -q "^\*\*$dest_lane\*\*"; then
+      added=1
+      echo "$ticket_box" >> "$tmpfile"
+    fi
+  done < "$KANBAN_FILE"
+  mv "$tmpfile" "$KANBAN_FILE"
+
+  # Clean up Kanban board formatting ONLY within the board section
+  board_start=$(awk '/^---$/ {f=1} f && /^## .*Kanban/ {print NR; exit}' "$KANBAN_FILE")
+  board_end=$(awk -v s="$board_start" 'NR>=s && /^- \[ \]/ {last=NR} END {print last}' "$KANBAN_FILE")
+  if [ -z "$board_start" ] || [ -z "$board_end" ]; then
+    echo "Kanban board section not found for formatting." >&2
+  else
+    awk -v s="$board_start" -v e="$board_end" '
+      NR < s {print $0; next}
+      NR > e {print $0; next}
+      /^\*\*.*\*\*/ {
+        if (in_list) {print ""; in_list=0}
+        print $0; print ""; next
+      }
+      /^- \[ \]/ {
+        if (!in_list) {in_list=1}
+        print $0
+        next
+      }
+      /^$/ {next}
+      {print $0}
+      ENDFILE {
+        if (in_list) {print ""; in_list=0}
+      }
+    ' "$KANBAN_FILE" > "$KANBAN_FILE.tmp" && mv "$KANBAN_FILE.tmp" "$KANBAN_FILE"
+  fi
+
+  # Check for merge conflicts before committing
+  if grep -qE '<<<<<<<|=======|>>>>>>>' "$KANBAN_FILE"; then
+    echo "Error: Merge conflict detected in $KANBAN_FILE. Please resolve conflicts before committing." >&2
+    exit 1
+  fi
+
+  # Commit the change
+  git add "$KANBAN_FILE"
+  git commit -m "kanban: moved '$ticket' from $src_lane to $dest_lane"
+
+  echo "Moved '$ticket' from $src_lane to $dest_lane and committed."
+  exit 0
+else
+  exit 0
+fi
