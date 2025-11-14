@@ -23,7 +23,7 @@ var staticFiles embed.FS
 
 // Configuration
 const (
-	DefaultScriptPath = "./git-kanban-lanes.sh"
+	DefaultScriptPath = "./git-kanban"
 	DefaultTimeout    = 10 * time.Second
 	DefaultCacheTTL   = 5 * time.Second
 	DefaultPort       = 8080

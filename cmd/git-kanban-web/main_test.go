@@ -66,9 +66,9 @@ func TestRunLanesScript(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	// Copy script to temp dir
-	scriptSrc := "../../git-kanban-lanes.sh"
-	scriptDst := filepath.Join(tmpDir, "git-kanban-lanes.sh")
+	// Copy integrated git-kanban script to temp dir
+	scriptSrc := "../../git-kanban"
+	scriptDst := filepath.Join(tmpDir, "git-kanban")
 	input, err := os.ReadFile(scriptSrc)
 	if err != nil {
 		t.Fatalf("Failed to read script: %v", err)

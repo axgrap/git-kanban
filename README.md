@@ -43,10 +43,10 @@ See [cmd/git-kanban-web/README_go_integration.md](cmd/git-kanban-web/README_go_i
 
 ### Owner Inference CLI
 
-The `git-kanban-lanes.sh` script can be used standalone to query ticket ownership:
+The integrated `git-kanban` script includes owner inference functionality:
 
 ```sh
-./git-kanban-lanes.sh --lanes
+./git-kanban --lanes
 ```
 
 Outputs TSV format:
@@ -60,7 +60,7 @@ Fields: `lane_index`, `lane_name`, `ticket_index`, `ticket_text`, `owner`
 
 **Owner Inference Rules:**
 - Only commits with subjects starting with "kanban:" (case-insensitive) count for ownership
-- The script uses `git blame` with an ignore list to skip non-kanban commits
+- Uses `git blame` with an ignore list to skip non-kanban commits
 - Requires Git 2.23+ for full functionality (--ignore-revs-file support)
 
 ## Requirements

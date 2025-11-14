@@ -84,9 +84,9 @@ sed -i 's/- \[x\] Task 3/- [x] Task 3 - updated/' README.md
 git add README.md
 git commit -m "kanban: Alice updates Task 3"
 
-# Run the lanes script
-echo "Running git-kanban-lanes.sh --lanes..."
-OUTPUT=$("$PROJECT_ROOT/git-kanban-lanes.sh" --lanes)
+# Run the integrated git-kanban script with --lanes
+echo "Running git-kanban --lanes..."
+OUTPUT=$("$PROJECT_ROOT/git-kanban" --lanes)
 
 echo "Output:"
 echo "$OUTPUT"

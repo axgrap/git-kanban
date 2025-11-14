@@ -4,13 +4,13 @@ This document describes the Go web server implementation that provides a browser
 
 ## Overview
 
-The `git-kanban-web` server provides a novice-friendly web interface for managing Kanban boards stored in `README.md`. It integrates with the `git-kanban-lanes.sh` shell script to infer ticket ownership from git history.
+The `git-kanban-web` server provides a novice-friendly web interface for managing Kanban boards stored in `README.md`. It integrates with the `git-kanban` shell script to infer ticket ownership from git history.
 
 ## Architecture
 
 ### Components
 
-1. **Shell Script (`git-kanban-lanes.sh`)**: Parses README.md and uses git blame to determine ticket owners
+1. **Shell Script (`git-kanban`)**: Integrated TUI and owner inference tool - parses README.md and uses git blame to determine ticket owners
 2. **Go Web Server**: Provides HTTP API and serves the browser UI
 3. **Browser UI**: Single-page application with drag-and-drop, claim/unclaim features
 
@@ -19,7 +19,7 @@ The `git-kanban-web` server provides a novice-friendly web interface for managin
 ```
 README.md → parseBoard() → Board object
                 ↓
-Board object → git-kanban-lanes.sh --lanes → TSV output
+Board object → git-kanban --lanes → TSV output
                 ↓
 TSV → runLanesScript() → []TicketInfo
                 ↓
@@ -59,7 +59,7 @@ Configuration is currently done via constants in `main.go`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `DefaultScriptPath` | `./git-kanban-lanes.sh` | Path to the lanes script |
+| `DefaultScriptPath` | `./git-kanban` | Path to the integrated git-kanban script |
 | `DefaultTimeout` | 10 seconds | Timeout for script execution |
 | `DefaultCacheTTL` | 5 seconds | Cache duration for owner info |
 | `DefaultPort` | 8080 | HTTP server port |
