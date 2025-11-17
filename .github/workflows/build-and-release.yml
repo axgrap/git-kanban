@@ -1,0 +1,169 @@
+name: Build and Release
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build Artifacts
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: git-kanban-web-linux-amd64
+          - goos: linux
+            goarch: arm64
+            output: git-kanban-web-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            output: git-kanban-web-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output: git-kanban-web-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            output: git-kanban-web-windows-amd64.exe
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build Go web server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          cd cmd/git-kanban-web
+          go build -ldflags="-s -w" -o ${{ matrix.output }} .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output }}
+          path: cmd/git-kanban-web/${{ matrix.output }}
+          retention-days: 30
+
+  package:
+    name: Package Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release-artifacts
+
+      - name: Create release package
+        run: |
+          mkdir -p release/git-kanban-shell
+          mkdir -p release/git-kanban-web
+
+          # Copy shell script
+          cp git-kanban release/git-kanban-shell/
+          cp install-git-kanban.sh release/git-kanban-shell/
+          cp install-git-kanban.ps1 release/git-kanban-shell/
+          cp README.md release/git-kanban-shell/
+          chmod +x release/git-kanban-shell/git-kanban
+          chmod +x release/git-kanban-shell/install-git-kanban.sh
+
+          # Copy web server binaries
+          find release-artifacts -type f -exec cp {} release/git-kanban-web/ \;
+          chmod +x release/git-kanban-web/git-kanban-web-* || true
+
+          # Create archives
+          cd release
+          tar -czf git-kanban-shell.tar.gz git-kanban-shell/
+          tar -czf git-kanban-web-all-platforms.tar.gz git-kanban-web/
+
+          # Create platform-specific packages
+          cd git-kanban-web
+          for binary in git-kanban-web-*; do
+            if [ -f "$binary" ]; then
+              platform_name="${binary#git-kanban-web-}"
+              platform_name="${platform_name%.exe}"
+              mkdir -p "../git-kanban-web-${platform_name}"
+              cp "$binary" "../git-kanban-web-${platform_name}/"
+              cp ../../README.md "../git-kanban-web-${platform_name}/"
+              cd ..
+              tar -czf "git-kanban-web-${platform_name}.tar.gz" "git-kanban-web-${platform_name}/"
+              cd git-kanban-web
+            fi
+          done
+          cd ../..
+
+      - name: Upload release packages as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-packages
+          path: release/*.tar.gz
+          retention-days: 30
+
+      - name: Generate checksums
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd release
+          sha256sum *.tar.gz > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/*.tar.gz
+            release/SHA256SUMS.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git
+
+      - name: Run shell tests
+        run: |
+          chmod +x git-kanban
+          chmod +x tests/test-lanes.sh
+          ./tests/test-lanes.sh
+
+      - name: Run Go tests
+        run: |
+          cd cmd/git-kanban-web
+          go test -v ./...
+
+      - name: Verify shell script works
+        run: |
+          ./git-kanban --help
+          ./git-kanban --lanes || echo "Expected error (no board in test environment)"

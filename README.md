@@ -85,6 +85,34 @@ The web GUI automatically creates commits with the "kanban:" prefix.
 
 This is a prototype for discussion and extension. Not yet part of git-extras.
 
+## Installation
+
+### Pre-built Releases
+
+Download the latest release from the [Releases page](https://github.com/axgrap/git-kanban/releases):
+
+**Shell Script (TUI + Owner Inference):**
+```sh
+# Download and extract
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-shell.tar.gz | tar -xz
+cd git-kanban-shell
+./install-git-kanban.sh
+```
+
+**Web GUI:**
+```sh
+# Linux
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-linux-amd64.tar.gz | tar -xz
+
+# macOS (Intel)
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-darwin-amd64.tar.gz | tar -xz
+
+# macOS (Apple Silicon)
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-darwin-arm64.tar.gz | tar -xz
+```
+
+See [CI/CD Documentation](.github/CICD.md) for build details and all available platforms.
+
 ## How to Run (Current State)
 
 ### TUI
