@@ -1,1 +1,3 @@
 tests/log/*
+tests/test-lanes-tmp/
+cmd/git-kanban-web/git-kanban-web

@@ -1,14 +1,19 @@
 # git-kanban
 
-A POSIX shell-based git extension for managing a Markdown Kanban board in your repository (e.g., in README.md), with a simple text-based interface for moving tickets between columns.
+A POSIX shell-based git extension for managing a Markdown Kanban board in your repository (e.g., in README.md), with both a text-based interface and a web-based GUI.
 
 ## Features
 
 - Parse Markdown Kanban boards (list format) from README.md
-- Text-based UI for selecting and moving tickets (no dependencies required)
+- **Text-based TUI** for selecting and moving tickets (no dependencies required)
+- **Web-based GUI** with drag-and-drop, claim/unclaim, and visual board management
+- **Ticket ownership tracking** via git blame with "kanban:" commit prefix filtering
 - Auto-commit changes with descriptive messages
+- Owner inference from git history
 
 ## Usage
+
+### Terminal UI (TUI)
 
 ```sh
 git kanban
@@ -17,30 +22,129 @@ git kanban
 - Launches the TUI to move tickets between columns.
 - All changes are committed automatically.
 
+### Web GUI
+
+```sh
+cd cmd/git-kanban-web
+go build -o git-kanban-web
+./git-kanban-web
+```
+
+Then open http://localhost:8080/static/index.html in your browser.
+
+Features:
+- **Drag & Drop**: Move tickets between lanes
+- **Claim/Unclaim**: Double-click cards to claim ownership
+- **Save & Commit**: Saves changes to README.md and creates git commits
+- **Owner Display**: Shows who owns each ticket based on git history
+- **Keyboard Shortcuts**: Ctrl+S to save, Ctrl+R to reload, ? for help
+
+See [cmd/git-kanban-web/README_go_integration.md](cmd/git-kanban-web/README_go_integration.md) for detailed documentation.
+
+### Owner Inference CLI
+
+The integrated `git-kanban` script includes owner inference functionality:
+
+```sh
+./git-kanban --lanes
+```
+
+Outputs TSV format:
+```
+0    To Do    0    Task 1    Alice
+0    To Do    1    Task 2    Bob
+1    Done     0    Task 3    Charlie
+```
+
+Fields: `lane_index`, `lane_name`, `ticket_index`, `ticket_text`, `owner`
+
+**Owner Inference Rules:**
+- Only commits with subjects starting with "kanban:" (case-insensitive) count for ownership
+- Uses `git blame` with an ignore list to skip non-kanban commits
+- Requires Git 2.23+ for full functionality (--ignore-revs-file support)
+
 ## Requirements
 
-- POSIX shell (sh, bash, zsh)
+- POSIX shell (sh, bash, zsh) - for TUI and owner inference
+- Git - for version control and blame-based ownership
+- Go 1.21+ - for web GUI (optional)
+
+## Commit Message Convention
+
+For ticket ownership tracking to work, use the "kanban:" prefix in commit messages:
+
+**Examples:**
+- ✅ `kanban: Alice claims 'Implement feature X'`
+- ✅ `kanban: moved 'Fix bug Y' from Backlog to In Progress`
+- ✅ `kanban: unclaim 'Task Z'`
+- ❌ `Fixed Task X` (will be ignored by owner inference)
+
+The web GUI automatically creates commits with the "kanban:" prefix.
 
 ## Status
 
 This is a prototype for discussion and extension. Not yet part of git-extras.
 
+## Installation
+
+### Pre-built Releases
+
+Download the latest release from the [Releases page](https://github.com/axgrap/git-kanban/releases):
+
+**Shell Script (TUI + Owner Inference):**
+```sh
+# Download and extract
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-shell.tar.gz | tar -xz
+cd git-kanban-shell
+./install-git-kanban.sh
+```
+
+**Web GUI:**
+```sh
+# Linux
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-linux-amd64.tar.gz | tar -xz
+
+# macOS (Intel)
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-darwin-amd64.tar.gz | tar -xz
+
+# macOS (Apple Silicon)
+curl -L https://github.com/axgrap/git-kanban/releases/latest/download/git-kanban-web-darwin-arm64.tar.gz | tar -xz
+```
+
+See [CI/CD Documentation](.github/CICD.md) for build details and all available platforms.
+
 ## How to Run (Current State)
+
+### TUI
 
 1. Make the script executable:
    ```sh
-   chmod +x proposed/git-kanban/git-kanban
+   chmod +x git-kanban
    ```
 2. From your repo root (with a Markdown Kanban in `README.md`), run:
    ```sh
-   ./proposed/git-kanban/git-kanban
+   ./git-kanban
    ```
    Or symlink it into your PATH as `git-kanban` to use as `git kanban`.
+
+### Web GUI
+
+1. Build the server:
+   ```sh
+   cd cmd/git-kanban-web
+   go build -o git-kanban-web
+   ```
+2. Run from the repository root:
+   ```sh
+   cd ../..
+   ./cmd/git-kanban-web/git-kanban-web
+   ```
+3. Open http://localhost:8080/static/index.html in your browser
 
 ## Limitations (Prototype)
 
 - Only supports list-style Kanban boards (not table format)
-- No gui for PM to manage
+- Web GUI is a basic prototype (no authentication, single-user)
 
 ## Kanban Board Format Requirements
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git Kanban Board</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🗂️ Git Kanban Board</h1>
+            <div class="controls">
+                <button id="reload-btn" class="btn btn-secondary" title="Reload board (Ctrl+R)">
+                    🔄 Reload
+                </button>
+                <button id="save-btn" class="btn btn-primary" title="Save changes and commit (Ctrl+S)">
+                    💾 Save &amp; Commit
+                </button>
+                <button id="help-btn" class="btn btn-secondary" title="Show help (?)">
+                    ❓ Help
+                </button>
+            </div>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div id="board" class="board">
+            <!-- Columns will be dynamically inserted here -->
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Help &amp; Keyboard Shortcuts</h2>
+            <div class="help-section">
+                <h3>How to Use</h3>
+                <ul>
+                    <li><strong>Drag &amp; Drop:</strong> Click and drag cards between columns to move tickets</li>
+                    <li><strong>Claim/Unclaim:</strong> Double-click a card to claim or unclaim ownership</li>
+                    <li><strong>Save:</strong> Click "Save &amp; Commit" to write changes to README.md and create a git commit</li>
+                    <li><strong>Owner Info:</strong> Owners are determined from git blame history (commits with "kanban:" prefix)</li>
+                </ul>
+            </div>
+            <div class="help-section">
+                <h3>Keyboard Shortcuts</h3>
+                <ul>
+                    <li><strong>Ctrl+S:</strong> Save and commit</li>
+                    <li><strong>Ctrl+R / F5:</strong> Reload board</li>
+                    <li><strong>?:</strong> Show this help</li>
+                    <li><strong>Tab:</strong> Navigate between cards</li>
+                    <li><strong>Enter:</strong> Select/activate focused card</li>
+                </ul>
+            </div>
+            <div class="help-section">
+                <h3>Accessibility</h3>
+                <p>This interface supports keyboard navigation and screen readers. Use Tab to navigate, Enter to select, and Escape to cancel.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
